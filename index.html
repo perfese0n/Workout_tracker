@@ -1,0 +1,744 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#15181c">
+  <title>Workout Tracker</title>
+  <style>
+    /* Palette borrowed from competition plates: red 25 kg, blue 20 kg, yellow 15 kg */
+    :root {
+      --bg: #eceef1; --card: #ffffff; --ink: #15181c; --muted: #5f6670;
+      --line: #cfd4da; --accent: #1e5ad6; --red: #c8302b; --yellow: #e5b000;
+      --radius: 12px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; padding: 16px 16px 96px; background: var(--bg); color: var(--ink);
+      font: 16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      font-variant-numeric: tabular-nums;
+    }
+    main { max-width: 560px; margin: 0 auto; }
+    h1 { font-size: 1.1rem; margin: 0 0 16px; color: var(--muted); font-weight: 600; }
+    h2 { font-size: 1.5rem; margin: 4px 0 2px; line-height: 1.2; }
+    h3 { font-size: 1.1rem; margin: 0 0 8px; }
+    [hidden] { display: none !important; }
+
+    fieldset, .field { border: none; margin: 0 0 20px; padding: 0; }
+    legend, .field-label { display: block; font-weight: 600; margin-bottom: 8px; }
+    .field-label input { margin-top: 6px; font-weight: 400; }
+    .small-label { display: block; font-size: .85rem; color: var(--muted); }
+    .small-label input { margin-top: 4px; }
+
+    input[type="date"], input[type="time"], input[type="text"] {
+      width: 100%; min-height: 52px; padding: 10px 12px; font: inherit; font-size: 16px;
+      color: var(--ink); background: var(--card);
+      border: 2px solid var(--line); border-radius: var(--radius);
+    }
+    input:focus { outline: none; border-color: var(--accent); }
+    input.invalid { border-color: var(--red); }
+
+    .choices { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .chip { position: relative; }
+    .chip input { position: absolute; opacity: 0; }
+    .chip span {
+      display: flex; align-items: center; justify-content: center; text-align: center;
+      min-height: 56px; padding: 8px; border-radius: var(--radius);
+      background: var(--card); border: 2px solid var(--line); font-weight: 600;
+    }
+    .chip input:checked + span { background: var(--ink); border-color: var(--ink); color: #fff; }
+    .chip input:focus-visible + span { outline: 3px solid var(--accent); outline-offset: 2px; }
+
+    button { font: inherit; cursor: pointer; }
+    .primary, .secondary, .danger {
+      display: flex; align-items: center; justify-content: center;
+      width: 100%; min-height: 56px; font-weight: 700; border-radius: var(--radius);
+    }
+    .primary { border: none; background: var(--accent); color: #fff; font-size: 1.1rem; }
+    .secondary { border: 2px solid var(--line); background: var(--card); color: var(--ink); margin-top: 12px; }
+    .danger { border: 2px solid var(--red); background: transparent; color: var(--red); margin-top: 12px; }
+    .link { background: none; border: none; color: var(--accent); padding: 8px 0; font-weight: 600; }
+    button:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0; }
+    .card {
+      background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+      padding: 12px; margin-bottom: 12px;
+    }
+    .meta { color: var(--muted); margin: 0 0 16px; }
+    .empty { color: var(--muted); text-align: center; padding: 24px 8px; }
+    .warn { color: var(--red); font-size: .9rem; margin: 8px 0 0; }
+
+    /* Category marks: plate colors */
+    .badge {
+      display: inline-block; padding: 2px 10px; border-radius: 999px;
+      font-size: .8rem; font-weight: 700; color: #fff; background: var(--muted);
+    }
+    .badge.strength, .badge.lift { background: var(--red); }
+    .badge.cardio { background: var(--accent); }
+    .badge.combo { background: var(--yellow); color: var(--ink); }
+
+    /* Session editor */
+    details.card summary { font-weight: 600; min-height: 32px; display: flex; align-items: center; cursor: pointer; }
+    details[open].card summary { margin-bottom: 12px; }
+    .entry { border-left: 6px solid var(--muted); }
+    .entry.lift { border-left-color: var(--red); }
+    .entry.cardio { border-left-color: var(--accent); }
+    .entry-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+    .icon-btn {
+      width: 44px; height: 44px; border: none; background: none; color: var(--muted);
+      font-size: 1.1rem; border-radius: 8px;
+    }
+    .set-grid {
+      display: grid; grid-template-columns: 24px 60px 68px 1fr 40px;
+      gap: 6px; align-items: center; margin-top: 6px;
+    }
+    .set-grid input { min-height: 46px; padding: 8px; }
+    .set-grid input[data-field="reps"], .set-grid input[data-field="weightKg"] { text-align: center; }
+    .set-head { font-size: .8rem; color: var(--muted); margin-top: 10px; }
+    .set-head span:nth-child(2), .set-head span:nth-child(3) { text-align: center; }
+    .set-no { color: var(--muted); font-weight: 700; text-align: center; }
+    .add-set {
+      width: 100%; min-height: 46px; margin-top: 8px; border: 2px dashed var(--line);
+      background: none; border-radius: var(--radius); color: var(--ink); font-weight: 600;
+    }
+    .entry > input[data-field="note"] { margin-top: 8px; }
+
+    /* History */
+    .week-head { font-size: .95rem; color: var(--muted); margin: 20px 0 8px; font-weight: 600; }
+    .history-item { display: block; width: 100%; text-align: left; color: inherit; }
+    .hist-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 4px; }
+    .history-item .meta { margin: 0; }
+    .resume { display: flex; flex-direction: column; gap: 4px; border-left: 6px solid var(--accent); }
+
+    /* File input hidden but still clickable through its label */
+    .visually-hidden { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; }
+
+    .banner {
+      background: var(--yellow); color: var(--ink); padding: 12px; border-radius: var(--radius);
+      margin-bottom: 16px; font-weight: 600;
+    }
+
+    /* Bottom navigation, within thumb reach */
+    .tabs {
+      position: fixed; left: 0; right: 0; bottom: 0; display: grid; grid-template-columns: repeat(3, 1fr);
+      background: var(--card); border-top: 1px solid var(--line);
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+    .tabs button {
+      min-height: 64px; background: none; border: none; font-weight: 700;
+      color: var(--muted); border-top: 3px solid transparent;
+    }
+    .tabs button.active { color: var(--ink); border-top-color: var(--accent); }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Workout Tracker</h1>
+    <div id="storage-warning" class="banner" hidden>
+      This view can't save data. Download the file and open it directly in Chrome or Safari.
+    </div>
+
+    <!-- ===== View: new session ===== -->
+    <section id="view-new">
+      <div id="resume-box" class="card resume" hidden>
+        <span>Session in progress: <strong id="resume-name"></strong></span>
+        <button type="button" class="secondary" id="resume-btn">Continue session</button>
+      </div>
+
+      <form id="session-form">
+        <fieldset>
+          <legend>Session type</legend>
+          <div class="choices">
+            <label class="chip"><input type="radio" name="category" value="strength" required><span>Strength</span></label>
+            <label class="chip"><input type="radio" name="category" value="cardio"><span>Cardio</span></label>
+            <label class="chip"><input type="radio" name="category" value="combo"><span>Combo</span></label>
+          </div>
+        </fieldset>
+
+        <div class="field">
+          <label class="field-label" for="session-name">Session name</label>
+          <input type="text" id="session-name" name="name" required maxlength="40"
+                 autocomplete="off" placeholder="e.g. Upper body, Legs, Swim + run">
+        </div>
+
+        <div class="two-col">
+          <div>
+            <label class="field-label" for="session-date">Date</label>
+            <input type="date" id="session-date" name="date" required>
+          </div>
+          <div>
+            <label class="field-label" for="session-time">Time</label>
+            <input type="time" id="session-time" name="time" required>
+          </div>
+        </div>
+
+        <button type="submit" class="primary" style="margin-top:16px">Start session</button>
+      </form>
+    </section>
+
+    <!-- ===== View: session editor (filled by JavaScript) ===== -->
+    <section id="view-session" hidden></section>
+
+    <!-- ===== View: history (filled by JavaScript) ===== -->
+    <section id="view-history" hidden></section>
+
+    <!-- ===== View: export and backup ===== -->
+    <section id="view-export" hidden>
+      <h2>Export</h2>
+      <div class="card">
+        <h3>Weekly CSV</h3>
+        <label class="field-label" for="export-date">Pick any day in the week</label>
+        <input type="date" id="export-date">
+        <p class="meta" id="export-summary" style="margin-top:8px"></p>
+        <button type="button" class="primary" id="export-csv">Download CSV</button>
+      </div>
+
+      <div class="card">
+        <h3>Backup</h3>
+        <p class="meta">Saves all your data as a file on this device. Browser storage can be wiped, so back up regularly.</p>
+        <button type="button" class="secondary" id="backup-btn">Download backup</button>
+        <label class="secondary" for="restore-input">Restore from backup</label>
+        <input type="file" id="restore-input" class="visually-hidden" accept="application/json,.json">
+        <p class="meta" id="storage-status" style="margin-top:12px"></p>
+      </div>
+    </section>
+  </main>
+
+  <nav class="tabs">
+    <button type="button" data-view="new">New</button>
+    <button type="button" data-view="history">History</button>
+    <button type="button" data-view="export">Export</button>
+  </nav>
+
+  <script>
+    // =====================================================================
+    // STORAGE MODULE: the only code that touches localStorage.
+    // To swap storage later (e.g. a server), replace this block only.
+    // =====================================================================
+    const Store = (() => {
+      const DATA_KEY = "workoutTracker.data";
+      const UI_KEY = "workoutTracker.ui";
+      const SCHEMA_VERSION = 1;
+
+      function emptyDb() { return { schemaVersion: SCHEMA_VERSION, sessions: [] }; }
+
+      function isAvailable() {
+        try {
+          localStorage.setItem("__test__", "1");
+          localStorage.removeItem("__test__");
+          return true;
+        } catch { return false; }
+      }
+
+      // Validates data and upgrades older schema versions (none yet)
+      function migrate(db) {
+        if (!db || !Array.isArray(db.sessions)) throw new Error("Invalid data format");
+        db.schemaVersion = SCHEMA_VERSION;
+        return db;
+      }
+
+      function loadData() {
+        let raw = null;
+        try {
+          raw = localStorage.getItem(DATA_KEY);
+          return raw ? migrate(JSON.parse(raw)) : emptyDb();
+        } catch (err) {
+          console.error("Load failed:", err);
+          // Keep a copy of unreadable data instead of overwriting it
+          try { if (raw) localStorage.setItem(DATA_KEY + ".corrupt-" + Date.now(), raw); } catch {}
+          return emptyDb();
+        }
+      }
+
+      function saveData(db) {
+        try { localStorage.setItem(DATA_KEY, JSON.stringify(db)); return true; }
+        catch (err) { console.error("Save failed:", err); return false; }
+      }
+
+      function loadUi() {
+        try { return JSON.parse(localStorage.getItem(UI_KEY)) || {}; } catch { return {}; }
+      }
+      function saveUi(ui) {
+        try { localStorage.setItem(UI_KEY, JSON.stringify(ui)); } catch {}
+      }
+
+      return { isAvailable, loadData, saveData, loadUi, saveUi, migrate };
+    })();
+
+    // =====================================================================
+    // HELPERS
+    // =====================================================================
+    const CATEGORY_LABELS = { strength: "Strength", cardio: "Cardio", combo: "Combo" };
+
+    function $(id) { return document.getElementById(id); }
+    function pad(n) { return String(n).padStart(2, "0"); }
+
+    // Dates are handled as local "YYYY-MM-DD" strings (avoids the UTC trap)
+    function toIsoDate(d) { return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; }
+    function todayLocal() { return toIsoDate(new Date()); }
+    function parseIsoDate(s) { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d); }
+    function addDays(iso, n) { const d = parseIsoDate(iso); d.setDate(d.getDate() + n); return toIsoDate(d); }
+    function weekRange(iso) {
+      const offset = (parseIsoDate(iso).getDay() + 6) % 7; // Monday = 0
+      const start = addDays(iso, -offset);
+      return { start, end: addDays(start, 6) };
+    }
+    function formatDate(iso) {
+      if (!iso) return "";
+      return parseIsoDate(iso).toLocaleDateString("en-GB",
+        { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+    }
+    function formatShort(iso) {
+      return parseIsoDate(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+    }
+
+    function makeId(prefix) {
+      return prefix + "_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 6);
+    }
+
+    // "7,2" or "7.2" -> 7.2 ; "" -> null ; invalid -> null
+    function parseNum(raw, integer = false) {
+      const s = String(raw).trim().replace(",", ".");
+      if (s === "") return null;
+      const n = Number(s);
+      if (!Number.isFinite(n) || n < 0) return null;
+      return integer ? Math.round(n) : Math.round(n * 100) / 100;
+    }
+    function fmtNum(n) { return n == null ? "" : String(n); }
+
+    // Makes user text safe to insert into HTML
+    function escapeHtml(s) {
+      return String(s ?? "").replace(/[&<>"']/g,
+        c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+    }
+
+    // CSV escaping (RFC 4180): wrap in quotes if needed, double inner quotes
+    function csvCell(v) {
+      if (v == null) return "";
+      const s = String(v);
+      return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    }
+
+    function downloadFile(filename, content, mime) {
+      const blob = new Blob([content], { type: mime });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+
+    function sortKey(s) { return `${s.date} ${s.time}`; }
+
+    function entryHasData(e) {
+      if (e.kind === "lift") {
+        return e.exercise.trim() !== "" ||
+          e.sets.some(st => st.reps != null || st.weightKg != null || st.note.trim() !== "");
+      }
+      return e.exercise.trim() !== "" || e.distanceM != null || e.durationMin != null || e.note.trim() !== "";
+    }
+
+    // =====================================================================
+    // STATE
+    // =====================================================================
+    let db = Store.loadData();
+    let ui = Object.assign({ view: "new", openSessionId: null, lastBackup: null }, Store.loadUi());
+
+    function persist() { if (!Store.saveData(db)) $("storage-warning").hidden = false; }
+    function persistUi() { Store.saveUi(ui); }
+    function findSession(id) { return db.sessions.find(s => s.id === id) || null; }
+    function openSession() { return findSession(ui.openSessionId); }
+
+    // =====================================================================
+    // RENDERING
+    // =====================================================================
+    const views = {
+      new: $("view-new"), session: $("view-session"),
+      history: $("view-history"), export: $("view-export")
+    };
+
+    function showView(name) {
+      ui.view = name;
+      persistUi();
+      render();
+      window.scrollTo(0, 0);
+    }
+
+    function render() {
+      if (ui.view === "session" && !openSession()) ui.view = "history";
+      for (const [name, el] of Object.entries(views)) el.hidden = name !== ui.view;
+      document.querySelectorAll(".tabs button").forEach(b => {
+        const current = ui.view === "session" ? "history" : ui.view;
+        b.classList.toggle("active", b.dataset.view === current);
+      });
+      if (ui.view === "new") renderNew();
+      if (ui.view === "session") renderSession();
+      if (ui.view === "history") renderHistory();
+      if (ui.view === "export") renderExport();
+    }
+
+    function renderNew() {
+      const s = openSession();
+      $("resume-box").hidden = !s;
+      if (s) $("resume-name").textContent = s.name || "Untitled session";
+    }
+
+    function sessionTitle(s) { return s.name.trim() || "Untitled session"; }
+    function sessionMeta(s) {
+      return `${CATEGORY_LABELS[s.category] || s.category}, ${formatDate(s.date)}, ${s.time}`;
+    }
+
+    function renderSession() {
+      const s = openSession();
+      const chips = Object.keys(CATEGORY_LABELS).map(c => `
+        <label class="chip"><input type="radio" name="edit-category" value="${c}" data-sfield="category"
+          ${s.category === c ? "checked" : ""}><span>${CATEGORY_LABELS[c]}</span></label>`).join("");
+
+      views.session.innerHTML = `
+        <button type="button" class="link" data-action="done">‹ History</button>
+        <h2 id="s-title">${escapeHtml(sessionTitle(s))}</h2>
+        <p class="meta" id="s-meta">${escapeHtml(sessionMeta(s))}</p>
+
+        <details class="card">
+          <summary>Edit session details</summary>
+          <div class="choices">${chips}</div>
+          <label class="field-label" style="margin-top:12px">Name
+            <input type="text" data-sfield="name" maxlength="40" autocomplete="off" value="${escapeHtml(s.name)}">
+          </label>
+          <div class="two-col">
+            <label class="field-label">Date<input type="date" data-sfield="date" value="${s.date}"></label>
+            <label class="field-label">Time<input type="time" data-sfield="time" value="${s.time}"></label>
+          </div>
+        </details>
+
+        ${s.entries.length ? s.entries.map(renderEntry).join("")
+          : `<p class="empty">No entries yet. Add a lift or a cardio drill.</p>`}
+
+        <div class="two-col">
+          <button type="button" class="primary" data-action="add-lift">+ Lift</button>
+          <button type="button" class="primary" data-action="add-cardio">+ Cardio</button>
+        </div>
+        <button type="button" class="secondary" data-action="done">Done</button>
+        <button type="button" class="danger" data-action="delete-session">Delete session</button>`;
+    }
+
+    function renderEntry(e) {
+      const head = (label) => `
+        <div class="entry-head">
+          <span class="badge ${e.kind}">${label}</span>
+          <button type="button" class="icon-btn" data-action="delete-entry" aria-label="Delete entry">✕</button>
+        </div>`;
+
+      if (e.kind === "lift") {
+        const sets = e.sets.map((st, i) => `
+          <div class="set-grid" data-set-index="${i}">
+            <span class="set-no">${i + 1}</span>
+            <input type="text" inputmode="numeric" data-field="reps" value="${fmtNum(st.reps)}" aria-label="Reps">
+            <input type="text" inputmode="decimal" data-field="weightKg" value="${fmtNum(st.weightKg)}" placeholder="BW" aria-label="Weight in kg">
+            <input type="text" data-field="note" value="${escapeHtml(st.note)}" aria-label="Note">
+            <button type="button" class="icon-btn" data-action="delete-set" aria-label="Delete set">✕</button>
+          </div>`).join("");
+        return `
+          <div class="card entry lift" data-entry-id="${e.id}">
+            ${head("Lift")}
+            <input type="text" data-field="exercise" value="${escapeHtml(e.exercise)}"
+                   placeholder="Exercise, e.g. Back squat" autocomplete="off">
+            <div class="set-grid set-head"><span>#</span><span>Reps</span><span>kg</span><span>Note</span><span></span></div>
+            ${sets}
+            <button type="button" class="add-set" data-action="add-set">+ Set</button>
+          </div>`;
+      }
+
+      return `
+        <div class="card entry cardio" data-entry-id="${e.id}">
+          ${head("Cardio")}
+          <input type="text" data-field="exercise" value="${escapeHtml(e.exercise)}"
+                 placeholder="Drill, e.g. 400m time trial" autocomplete="off">
+          <div class="two-col">
+            <label class="small-label">Distance (m)
+              <input type="text" inputmode="numeric" data-field="distanceM" value="${fmtNum(e.distanceM)}">
+            </label>
+            <label class="small-label">Duration (min)
+              <input type="text" inputmode="decimal" data-field="durationMin" value="${fmtNum(e.durationMin)}">
+            </label>
+          </div>
+          <input type="text" data-field="note" value="${escapeHtml(e.note)}" placeholder="Note (optional)">
+          <p class="warn" ${e.distanceM == null && e.durationMin == null ? "" : "hidden"}>Add a distance or a duration.</p>
+        </div>`;
+    }
+
+    function renderHistory() {
+      const list = [...db.sessions].sort((a, b) => sortKey(b).localeCompare(sortKey(a)));
+      if (!list.length) {
+        views.history.innerHTML = `<h2>History</h2><p class="empty">No sessions yet. Start one from the New tab.</p>`;
+        return;
+      }
+      let html = `<h2>History</h2>`;
+      let currentWeek = null;
+      for (const s of list) {
+        const wk = weekRange(s.date);
+        if (wk.start !== currentWeek) {
+          currentWeek = wk.start;
+          html += `<p class="week-head">Week of ${formatShort(wk.start)} to ${formatShort(wk.end)}</p>`;
+        }
+        html += `
+          <button type="button" class="card history-item" data-open="${s.id}">
+            <div class="hist-top">
+              <strong>${escapeHtml(sessionTitle(s))}</strong>
+              <span class="badge ${s.category}">${CATEGORY_LABELS[s.category] || ""}</span>
+            </div>
+            <p class="meta">${escapeHtml(formatDate(s.date))}, ${escapeHtml(s.time)}</p>
+            <p class="meta">${summarize(s)}</p>
+          </button>`;
+      }
+      views.history.innerHTML = html;
+    }
+
+    function summarize(s) {
+      if (!s.entries.length) return "No entries";
+      const lifts = s.entries.filter(e => e.kind === "lift");
+      const sets = lifts.reduce((n, e) => n + e.sets.length, 0);
+      const cardio = s.entries.length - lifts.length;
+      const parts = [];
+      if (lifts.length) parts.push(`${lifts.length} lift${lifts.length > 1 ? "s" : ""}, ${sets} set${sets !== 1 ? "s" : ""}`);
+      if (cardio) parts.push(`${cardio} cardio`);
+      return parts.join("; ");
+    }
+
+    function renderExport() {
+      const input = $("export-date");
+      if (!input.value) input.value = todayLocal();
+      const { start, end } = weekRange(input.value);
+      const count = sessionsInRange(start, end).length;
+      $("export-summary").textContent =
+        `${formatDate(start)} to ${formatDate(end)}: ${count} session${count !== 1 ? "s" : ""}`;
+      updateStorageStatus();
+    }
+
+    async function updateStorageStatus() {
+      let text = `Last backup: ${ui.lastBackup ? formatDate(ui.lastBackup) : "never"}.`;
+      try {
+        if (navigator.storage && navigator.storage.persisted) {
+          text += (await navigator.storage.persisted())
+            ? " Browser storage is protected." : " The browser may clear its storage.";
+        }
+      } catch {}
+      $("storage-status").textContent = text;
+    }
+
+    // =====================================================================
+    // CSV EXPORT (format locked: see spec)
+    // =====================================================================
+    function sessionsInRange(start, end) {
+      return db.sessions.filter(s => s.date >= start && s.date <= end)
+        .sort((a, b) => sortKey(a).localeCompare(sortKey(b)));
+    }
+
+    function buildCsv(sessions) {
+      const rows = [["date", "time", "session_type", "session_name", "exercise",
+                     "set", "reps", "weight_kg", "distance_m", "duration_min", "notes"]];
+      for (const s of sessions) {
+        const base = [s.date, s.time, s.category, s.name.trim()];
+        if (!s.entries.length) { rows.push([...base, "", "", "", "", "", "", ""]); continue; }
+        for (const e of s.entries) {
+          const name = e.exercise.trim();
+          if (e.kind === "lift") {
+            if (!e.sets.length) rows.push([...base, name, "", "", "", "", "", ""]);
+            e.sets.forEach((st, i) =>
+              rows.push([...base, name, i + 1, st.reps, st.weightKg, "", "", st.note.trim()]));
+          } else {
+            rows.push([...base, name, 1, "", "", e.distanceM, e.durationMin, e.note.trim()]);
+          }
+        }
+      }
+      // BOM so accents display correctly in Excel; CRLF line endings per RFC 4180
+      return "\uFEFF" + rows.map(r => r.map(csvCell).join(",")).join("\r\n") + "\r\n";
+    }
+
+    // =====================================================================
+    // EVENT HANDLERS
+    // =====================================================================
+
+    // Bottom navigation
+    document.querySelector(".tabs").addEventListener("click", e => {
+      const b = e.target.closest("[data-view]");
+      if (b) showView(b.dataset.view);
+    });
+
+    // New session
+    $("session-form").addEventListener("submit", e => {
+      e.preventDefault();
+      const data = new FormData(e.target);
+      const session = {
+        id: makeId("s"),
+        date: data.get("date"),
+        time: data.get("time"),
+        category: data.get("category"),
+        name: data.get("name").trim(),
+        entries: []
+      };
+      db.sessions.push(session);
+      persist();
+      e.target.reset();
+      $("session-date").value = todayLocal();
+      ui.openSessionId = session.id;
+      showView("session");
+    });
+
+    $("resume-btn").addEventListener("click", () => showView("session"));
+
+    // Session editor: typing (updates state and saves, without re-rendering)
+    function handleEditorInput(e) {
+      const t = e.target;
+      const s = openSession();
+      if (!s) return;
+
+      if (t.dataset.sfield) {
+        const f = t.dataset.sfield;
+        if (f === "category" && t.checked) s.category = t.value;
+        if (f === "name") s.name = t.value;
+        if ((f === "date" || f === "time") && t.value) s[f] = t.value;
+        $("s-title").textContent = sessionTitle(s);
+        $("s-meta").textContent = sessionMeta(s);
+        persist();
+        return;
+      }
+
+      const card = t.closest("[data-entry-id]");
+      const field = t.dataset.field;
+      if (!card || !field) return;
+      const entry = s.entries.find(x => x.id === card.dataset.entryId);
+      const row = t.closest("[data-set-index]");
+      const target = row ? entry.sets[Number(row.dataset.setIndex)] : entry;
+
+      if (field === "exercise" || field === "note") {
+        target[field] = t.value;
+      } else {
+        const value = parseNum(t.value, field === "reps" || field === "distanceM");
+        t.classList.toggle("invalid", t.value.trim() !== "" && value === null);
+        target[field] = value;
+      }
+
+      if (entry.kind === "cardio") {
+        card.querySelector(".warn").hidden = !(entry.distanceM == null && entry.durationMin == null);
+      }
+      persist();
+    }
+    views.session.addEventListener("input", handleEditorInput);
+    views.session.addEventListener("change", handleEditorInput);
+
+    // Session editor: buttons
+    views.session.addEventListener("click", e => {
+      const btn = e.target.closest("[data-action]");
+      if (!btn) return;
+      const s = openSession();
+      const action = btn.dataset.action;
+
+      if (action === "done") { ui.openSessionId = null; showView("history"); return; }
+
+      if (action === "delete-session") {
+        if (confirm(`Delete "${sessionTitle(s)}" (${formatDate(s.date)})? This can't be undone.`)) {
+          db.sessions = db.sessions.filter(x => x.id !== s.id);
+          persist();
+          ui.openSessionId = null;
+          showView("history");
+        }
+        return;
+      }
+
+      if (action === "add-lift" || action === "add-cardio") {
+        const entry = action === "add-lift"
+          ? { id: makeId("e"), kind: "lift", exercise: "", sets: [{ reps: null, weightKg: null, note: "" }] }
+          : { id: makeId("e"), kind: "cardio", exercise: "", distanceM: null, durationMin: null, note: "" };
+        s.entries.push(entry);
+        persist();
+        renderSession();
+        const nameInput = views.session.querySelector(`[data-entry-id="${entry.id}"] [data-field="exercise"]`);
+        nameInput.scrollIntoView({ block: "center" });
+        nameInput.focus();
+        return;
+      }
+
+      const card = btn.closest("[data-entry-id]");
+      if (!card) return;
+      const entry = s.entries.find(x => x.id === card.dataset.entryId);
+
+      if (action === "delete-entry") {
+        if (!entryHasData(entry) || confirm(`Delete "${entry.exercise.trim() || "this entry"}"?`)) {
+          s.entries = s.entries.filter(x => x.id !== entry.id);
+          persist();
+          renderSession();
+        }
+      }
+
+      if (action === "add-set") {
+        const last = entry.sets[entry.sets.length - 1];
+        // New set copies the previous set's reps and weight for fast entry
+        entry.sets.push({ reps: last ? last.reps : null, weightKg: last ? last.weightKg : null, note: "" });
+        persist();
+        renderSession();
+        const rows = views.session.querySelectorAll(`[data-entry-id="${entry.id}"] [data-set-index]`);
+        rows[rows.length - 1].scrollIntoView({ block: "center" });
+      }
+
+      if (action === "delete-set") {
+        const idx = Number(btn.closest("[data-set-index]").dataset.setIndex);
+        entry.sets.splice(idx, 1);
+        persist();
+        renderSession();
+      }
+    });
+
+    // History: open a session
+    views.history.addEventListener("click", e => {
+      const item = e.target.closest("[data-open]");
+      if (!item) return;
+      ui.openSessionId = item.dataset.open;
+      showView("session");
+    });
+
+    // Export
+    $("export-date").addEventListener("change", renderExport);
+
+    $("export-csv").addEventListener("click", () => {
+      const { start, end } = weekRange($("export-date").value || todayLocal());
+      const sessions = sessionsInRange(start, end);
+      if (!sessions.length) { alert("No sessions in this week."); return; }
+      downloadFile(`workouts_${start}_to_${end}.csv`, buildCsv(sessions), "text/csv;charset=utf-8");
+    });
+
+    $("backup-btn").addEventListener("click", () => {
+      downloadFile(`workout-backup_${todayLocal()}.json`, JSON.stringify(db, null, 2), "application/json");
+      ui.lastBackup = todayLocal();
+      persistUi();
+      updateStorageStatus();
+    });
+
+    $("restore-input").addEventListener("change", async e => {
+      const file = e.target.files[0];
+      e.target.value = "";
+      if (!file) return;
+      let incoming;
+      try { incoming = Store.migrate(JSON.parse(await file.text())); }
+      catch { alert("That file isn't a valid workout backup."); return; }
+      const msg = `Replace all current data (${db.sessions.length} sessions) with this backup (${incoming.sessions.length} sessions)?`;
+      if (!confirm(msg)) return;
+      db = incoming;
+      persist();
+      ui.openSessionId = null;
+      persistUi();
+      alert("Backup restored.");
+      renderExport();
+    });
+
+    // =====================================================================
+    // START-UP
+    // =====================================================================
+    if (!Store.isAvailable()) $("storage-warning").hidden = false;
+    try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch {}
+    $("session-date").value = todayLocal();
+    render();
+  </script>
+</body>
+</html>
