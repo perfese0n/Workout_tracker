@@ -61,6 +61,7 @@
     button:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
 
     .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0; }
+    .add-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 8px 0; }
     .card {
       background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
       padding: 12px; margin-bottom: 12px;
@@ -89,20 +90,35 @@
       width: 44px; height: 44px; border: none; background: none; color: var(--muted);
       font-size: 1.1rem; border-radius: 8px;
     }
+    /* Each set: row 1 = reps, kg, sec, delete; row 2 = note */
     .set-grid {
-      display: grid; grid-template-columns: 24px 60px 68px 1fr 40px;
-      gap: 6px; align-items: center; margin-top: 6px;
+      display: grid; grid-template-columns: 24px 1fr 1fr 1fr 40px;
+      gap: 6px; align-items: center; margin-top: 10px;
     }
-    .set-grid input { min-height: 46px; padding: 8px; }
-    .set-grid input[data-field="reps"], .set-grid input[data-field="weightKg"] { text-align: center; }
-    .set-head { font-size: .8rem; color: var(--muted); margin-top: 10px; }
-    .set-head span:nth-child(2), .set-head span:nth-child(3) { text-align: center; }
-    .set-no { color: var(--muted); font-weight: 700; text-align: center; }
+    .set-grid input { min-height: 46px; padding: 8px; text-align: center; }
+    .set-grid input[data-field="note"] { grid-column: 2 / 5; min-height: 38px; text-align: left; }
+    .set-head { font-size: .8rem; color: var(--muted); text-align: center; }
+    .set-no { grid-row: span 2; color: var(--muted); font-weight: 700; text-align: center; }
+
+    /* Collapsible entries */
+    .entry-toggle {
+      flex: 1; min-width: 0; min-height: 44px; display: flex; align-items: center; gap: 8px;
+      background: none; border: none; padding: 0; text-align: left; color: inherit;
+    }
+    .chevron { width: 1em; color: var(--muted); }
+    .entry-text { display: flex; flex-direction: column; min-width: 0; }
+    .entry-title { font-weight: 700; }
+    .entry-summary {
+      display: block; color: var(--muted); font-size: .9rem;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .entry.collapsed .entry-body { display: none; }
+    .entry.collapsed .entry-head { margin-bottom: 0; }
     .add-set {
       width: 100%; min-height: 46px; margin-top: 8px; border: 2px dashed var(--line);
       background: none; border-radius: var(--radius); color: var(--ink); font-weight: 600;
     }
-    .entry > input[data-field="note"] { margin-top: 8px; }
+    
 
     /* History */
     .week-head { font-size: .95rem; color: var(--muted); margin: 20px 0 8px; font-weight: 600; }
@@ -331,10 +347,16 @@
 
     function sortKey(s) { return `${s.date} ${s.time}`; }
 
+    function entryName(e) {
+      if (e.kind === "other") return e.note.trim() || "Other";
+      return e.exercise.trim() || "Unnamed";
+    }
+
     function entryHasData(e) {
+      if (e.kind === "other") return e.note.trim() !== "" || e.durationMin != null;
       if (e.kind === "lift") {
         return e.exercise.trim() !== "" ||
-          e.sets.some(st => st.reps != null || st.weightKg != null || st.note.trim() !== "");
+          e.sets.some(st => st.reps != null || st.weightKg != null || st.timeSec != null || st.note.trim() !== "");
       }
       return e.exercise.trim() !== "" || e.distanceM != null || e.durationMin != null || e.note.trim() !== "";
     }
@@ -349,6 +371,17 @@
     function persistUi() { Store.saveUi(ui); }
     function findSession(id) { return db.sessions.find(s => s.id === id) || null; }
     function openSession() { return findSession(ui.openSessionId); }
+
+    // UI-only state (not saved): which entry cards are collapsed
+    let collapsed = new Set();
+    // Opening a session collapses every entry except the last one
+    function defaultCollapsed(s) { return new Set(s.entries.slice(0, -1).map(e => e.id)); }
+    function openSessionById(id) {
+      ui.openSessionId = id;
+      const s = findSession(id);
+      collapsed = s ? defaultCollapsed(s) : new Set();
+      showView("session");
+    }
 
     // =====================================================================
     // RENDERING
@@ -415,20 +448,51 @@
         ${s.entries.length ? s.entries.map(renderEntry).join("")
           : `<p class="empty">No entries yet. Add a lift or a cardio drill.</p>`}
 
-        <div class="two-col">
+        <div class="add-row">
           <button type="button" class="primary" data-action="add-lift">+ Lift</button>
           <button type="button" class="primary" data-action="add-cardio">+ Cardio</button>
+          <button type="button" class="primary" data-action="add-other">+ Other</button>
         </div>
         <button type="button" class="secondary" data-action="done">Done</button>
         <button type="button" class="danger" data-action="delete-session">Delete session</button>`;
     }
 
+    function setLabel(st) {
+      const parts = [];
+      if (st.reps != null) parts.push(st.weightKg != null ? `${st.reps}×${st.weightKg} kg` : `${st.reps} rep${st.reps !== 1 ? "s" : ""}`);
+      else if (st.weightKg != null) parts.push(`${st.weightKg} kg`);
+      if (st.timeSec != null) parts.push(`${st.timeSec}s`);
+      return parts.join(" ") || "–";
+    }
+
+    function entrySummary(e) {
+      if (e.kind === "lift") {
+        const n = e.sets.length;
+        return `${n} set${n !== 1 ? "s" : ""}${n ? ": " + e.sets.map(setLabel).join(", ") : ""}`;
+      }
+      if (e.kind === "other") return e.durationMin != null ? `${e.durationMin} min` : "No duration";
+      const parts = [];
+      if (e.distanceM != null) parts.push(`${e.distanceM} m`);
+      if (e.durationMin != null) parts.push(`${e.durationMin} min`);
+      return parts.join(", ") || "No distance or duration";
+    }
+
     function renderEntry(e) {
-      const head = (label) => `
+      const isCollapsed = collapsed.has(e.id);
+      const label = { lift: "Lift", cardio: "Cardio", other: "Other" }[e.kind];
+      const head = `
         <div class="entry-head">
-          <span class="badge ${e.kind}">${label}</span>
+          <button type="button" class="entry-toggle" data-action="toggle-entry" aria-expanded="${!isCollapsed}">
+            <span class="chevron">${isCollapsed ? "▸" : "▾"}</span>
+            <span class="badge ${e.kind}">${label}</span>
+            ${isCollapsed ? `<span class="entry-text">
+              <span class="entry-title">${escapeHtml(entryName(e))}</span>
+              <span class="entry-summary">${escapeHtml(entrySummary(e))}</span>
+            </span>` : ""}
+          </button>
           <button type="button" class="icon-btn" data-action="delete-entry" aria-label="Delete entry">✕</button>
         </div>`;
+      const cls = `card entry ${e.kind}${isCollapsed ? " collapsed" : ""}`;
 
       if (e.kind === "lift") {
         const sets = e.sets.map((st, i) => `
@@ -436,35 +500,55 @@
             <span class="set-no">${i + 1}</span>
             <input type="text" inputmode="numeric" data-field="reps" value="${fmtNum(st.reps)}" aria-label="Reps">
             <input type="text" inputmode="decimal" data-field="weightKg" value="${fmtNum(st.weightKg)}" placeholder="BW" aria-label="Weight in kg">
-            <input type="text" data-field="note" value="${escapeHtml(st.note)}" aria-label="Note">
+            <input type="text" inputmode="numeric" data-field="timeSec" value="${fmtNum(st.timeSec)}" aria-label="Time in seconds">
             <button type="button" class="icon-btn" data-action="delete-set" aria-label="Delete set">✕</button>
+            <input type="text" data-field="note" value="${escapeHtml(st.note)}" placeholder="Note" aria-label="Note">
           </div>`).join("");
         return `
-          <div class="card entry lift" data-entry-id="${e.id}">
-            ${head("Lift")}
-            <input type="text" data-field="exercise" value="${escapeHtml(e.exercise)}"
-                   placeholder="Exercise, e.g. Back squat" autocomplete="off">
-            <div class="set-grid set-head"><span>#</span><span>Reps</span><span>kg</span><span>Note</span><span></span></div>
-            ${sets}
-            <button type="button" class="add-set" data-action="add-set">+ Set</button>
+          <div class="${cls}" data-entry-id="${e.id}">
+            ${head}
+            <div class="entry-body">
+              <input type="text" data-field="exercise" value="${escapeHtml(e.exercise)}"
+                     placeholder="Exercise, e.g. Back squat" autocomplete="off">
+              <div class="set-grid set-head"><span>#</span><span>Reps</span><span>kg</span><span>Sec</span><span></span></div>
+              ${sets}
+              <button type="button" class="add-set" data-action="add-set">+ Set</button>
+            </div>
+          </div>`;
+      }
+
+      if (e.kind === "other") {
+        return `
+          <div class="${cls}" data-entry-id="${e.id}">
+            ${head}
+            <div class="entry-body">
+              <label class="small-label">Notes
+                <input type="text" data-field="note" value="${escapeHtml(e.note)}" placeholder="e.g. Tennis" autocomplete="off">
+              </label>
+              <label class="small-label" style="margin-top:8px">Duration (min)
+                <input type="text" inputmode="decimal" data-field="durationMin" value="${fmtNum(e.durationMin)}">
+              </label>
+            </div>
           </div>`;
       }
 
       return `
-        <div class="card entry cardio" data-entry-id="${e.id}">
-          ${head("Cardio")}
-          <input type="text" data-field="exercise" value="${escapeHtml(e.exercise)}"
-                 placeholder="Drill, e.g. 400m time trial" autocomplete="off">
-          <div class="two-col">
-            <label class="small-label">Distance (m)
-              <input type="text" inputmode="numeric" data-field="distanceM" value="${fmtNum(e.distanceM)}">
-            </label>
-            <label class="small-label">Duration (min)
-              <input type="text" inputmode="decimal" data-field="durationMin" value="${fmtNum(e.durationMin)}">
-            </label>
+        <div class="${cls}" data-entry-id="${e.id}">
+          ${head}
+          <div class="entry-body">
+            <input type="text" data-field="exercise" value="${escapeHtml(e.exercise)}"
+                   placeholder="Drill, e.g. 400m time trial" autocomplete="off">
+            <div class="two-col">
+              <label class="small-label">Distance (m)
+                <input type="text" inputmode="numeric" data-field="distanceM" value="${fmtNum(e.distanceM)}">
+              </label>
+              <label class="small-label">Duration (min)
+                <input type="text" inputmode="decimal" data-field="durationMin" value="${fmtNum(e.durationMin)}">
+              </label>
+            </div>
+            <input type="text" data-field="note" value="${escapeHtml(e.note)}" placeholder="Note (optional)" style="margin-top:8px">
+            <p class="warn" ${e.distanceM == null && e.durationMin == null ? "" : "hidden"}>Add a distance or a duration.</p>
           </div>
-          <input type="text" data-field="note" value="${escapeHtml(e.note)}" placeholder="Note (optional)">
-          <p class="warn" ${e.distanceM == null && e.durationMin == null ? "" : "hidden"}>Add a distance or a duration.</p>
         </div>`;
     }
 
@@ -499,10 +583,12 @@
       if (!s.entries.length) return "No entries";
       const lifts = s.entries.filter(e => e.kind === "lift");
       const sets = lifts.reduce((n, e) => n + e.sets.length, 0);
-      const cardio = s.entries.length - lifts.length;
+      const cardio = s.entries.filter(e => e.kind === "cardio").length;
+      const other = s.entries.filter(e => e.kind === "other").length;
       const parts = [];
       if (lifts.length) parts.push(`${lifts.length} lift${lifts.length > 1 ? "s" : ""}, ${sets} set${sets !== 1 ? "s" : ""}`);
       if (cardio) parts.push(`${cardio} cardio`);
+      if (other) parts.push(`${other} other`);
       return parts.join("; ");
     }
 
@@ -537,18 +623,21 @@
 
     function buildCsv(sessions) {
       const rows = [["date", "time", "session_type", "session_name", "exercise",
-                     "set", "reps", "weight_kg", "distance_m", "duration_min", "notes"]];
+                     "set", "reps", "weight_kg", "distance_m", "duration_min", "notes", "time_s"]];
       for (const s of sessions) {
         const base = [s.date, s.time, s.category, s.name.trim()];
-        if (!s.entries.length) { rows.push([...base, "", "", "", "", "", "", ""]); continue; }
+        if (!s.entries.length) { rows.push([...base, "", "", "", "", "", "", "", ""]); continue; }
         for (const e of s.entries) {
-          const name = e.exercise.trim();
           if (e.kind === "lift") {
-            if (!e.sets.length) rows.push([...base, name, "", "", "", "", "", ""]);
+            const name = e.exercise.trim();
+            if (!e.sets.length) rows.push([...base, name, "", "", "", "", "", "", ""]);
             e.sets.forEach((st, i) =>
-              rows.push([...base, name, i + 1, st.reps, st.weightKg, "", "", st.note.trim()]));
+              rows.push([...base, name, i + 1, st.reps, st.weightKg, "", "", st.note.trim(), st.timeSec]));
+          } else if (e.kind === "cardio") {
+            rows.push([...base, e.exercise.trim(), 1, "", "", e.distanceM, e.durationMin, e.note.trim(), ""]);
           } else {
-            rows.push([...base, name, 1, "", "", e.distanceM, e.durationMin, e.note.trim()]);
+            // Other: exercise column reads "Other" so these rows are easy to filter
+            rows.push([...base, "Other", 1, "", "", "", e.durationMin, e.note.trim(), ""]);
           }
         }
       }
@@ -582,11 +671,10 @@
       persist();
       e.target.reset();
       $("session-date").value = todayLocal();
-      ui.openSessionId = session.id;
-      showView("session");
+      openSessionById(session.id);
     });
 
-    $("resume-btn").addEventListener("click", () => showView("session"));
+    $("resume-btn").addEventListener("click", () => openSessionById(ui.openSessionId));
 
     // Session editor: typing (updates state and saves, without re-rendering)
     function handleEditorInput(e) {
@@ -615,7 +703,7 @@
       if (field === "exercise" || field === "note") {
         target[field] = t.value;
       } else {
-        const value = parseNum(t.value, field === "reps" || field === "distanceM");
+        const value = parseNum(t.value, ["reps", "distanceM", "timeSec"].includes(field));
         t.classList.toggle("invalid", t.value.trim() !== "" && value === null);
         target[field] = value;
       }
@@ -647,14 +735,17 @@
         return;
       }
 
-      if (action === "add-lift" || action === "add-cardio") {
+      if (action === "add-lift" || action === "add-cardio" || action === "add-other") {
+        s.entries.forEach(x => collapsed.add(x.id)); // fold earlier entries away
         const entry = action === "add-lift"
-          ? { id: makeId("e"), kind: "lift", exercise: "", sets: [{ reps: null, weightKg: null, note: "" }] }
-          : { id: makeId("e"), kind: "cardio", exercise: "", distanceM: null, durationMin: null, note: "" };
+          ? { id: makeId("e"), kind: "lift", exercise: "", sets: [{ reps: null, weightKg: null, timeSec: null, note: "" }] }
+          : action === "add-cardio"
+            ? { id: makeId("e"), kind: "cardio", exercise: "", distanceM: null, durationMin: null, note: "" }
+            : { id: makeId("e"), kind: "other", durationMin: null, note: "" };
         s.entries.push(entry);
         persist();
         renderSession();
-        const nameInput = views.session.querySelector(`[data-entry-id="${entry.id}"] [data-field="exercise"]`);
+        const nameInput = views.session.querySelector(`[data-entry-id="${entry.id}"] .entry-body input`);
         nameInput.scrollIntoView({ block: "center" });
         nameInput.focus();
         return;
@@ -664,8 +755,14 @@
       if (!card) return;
       const entry = s.entries.find(x => x.id === card.dataset.entryId);
 
+      if (action === "toggle-entry") {
+        if (collapsed.has(entry.id)) collapsed.delete(entry.id); else collapsed.add(entry.id);
+        renderSession();
+        return;
+      }
+
       if (action === "delete-entry") {
-        if (!entryHasData(entry) || confirm(`Delete "${entry.exercise.trim() || "this entry"}"?`)) {
+        if (!entryHasData(entry) || confirm(`Delete "${entryName(entry)}"?`)) {
           s.entries = s.entries.filter(x => x.id !== entry.id);
           persist();
           renderSession();
@@ -675,7 +772,12 @@
       if (action === "add-set") {
         const last = entry.sets[entry.sets.length - 1];
         // New set copies the previous set's reps and weight for fast entry
-        entry.sets.push({ reps: last ? last.reps : null, weightKg: last ? last.weightKg : null, note: "" });
+        entry.sets.push({
+          reps: last ? last.reps : null,
+          weightKg: last ? last.weightKg : null,
+          timeSec: last ? last.timeSec ?? null : null,
+          note: ""
+        });
         persist();
         renderSession();
         const rows = views.session.querySelectorAll(`[data-entry-id="${entry.id}"] [data-set-index]`);
@@ -694,8 +796,7 @@
     views.history.addEventListener("click", e => {
       const item = e.target.closest("[data-open]");
       if (!item) return;
-      ui.openSessionId = item.dataset.open;
-      showView("session");
+      openSessionById(item.dataset.open);
     });
 
     // Export
@@ -738,6 +839,7 @@
     if (!Store.isAvailable()) $("storage-warning").hidden = false;
     try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch {}
     $("session-date").value = todayLocal();
+    if (openSession()) collapsed = defaultCollapsed(openSession());
     render();
   </script>
 </body>
